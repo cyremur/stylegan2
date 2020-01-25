@@ -7,7 +7,9 @@
 """Miscellaneous utility functions."""
 
 import os
+import glob
 import pickle
+import re
 import numpy as np
 import PIL.Image
 import PIL.ImageFont
@@ -143,3 +145,77 @@ def setup_snapshot_image_grid(training_set,
     return (gw, gh), reals, labels
 
 #----------------------------------------------------------------------------
+
+def get_last_pkl_for_run_name(run_name):
+    run_name = "-".join(run_name.split("-")[1:])
+    for candidate in sorted(glob.glob("results/*-" + run_name))[::-1]:
+        try:
+            pkl = locate_network_pkl(candidate)
+            return os.path.join(os.getcwd(), pkl)
+            return pkl
+        except:
+            continue
+    return None
+
+def locate_run_dir(run_id_or_run_dir):
+    if isinstance(run_id_or_run_dir, str):
+        if os.path.isdir(run_id_or_run_dir):
+            return run_id_or_run_dir
+        converted = dnnlib.submission.submit.convert_path(run_id_or_run_dir)
+        if os.path.isdir(converted):
+            return converted
+
+    result_dir = "./results"
+    run_dir_pattern = re.compile('^0*%s-' % str(run_id_or_run_dir))
+    for search_dir in ['']:
+        full_search_dir = result_dir if search_dir == '' else os.path.normpath(os.path.join(result_dir, search_dir))
+        run_dir = os.path.join(full_search_dir, str(run_id_or_run_dir))
+        if os.path.isdir(run_dir):
+            return run_dir
+        run_dirs = sorted(glob.glob(os.path.join(full_search_dir, '*')))
+        run_dirs = [run_dir for run_dir in run_dirs if run_dir_pattern.match(os.path.basename(run_dir))]
+        run_dirs = [run_dir for run_dir in run_dirs if os.path.isdir(run_dir)]
+        if len(run_dirs) == 1:
+            return run_dirs[0]
+    raise IOError('Cannot locate result subdir for run', run_id_or_run_dir)
+
+def list_network_pkls(run_id_or_run_dir, include_final=True):
+    run_dir = locate_run_dir(run_id_or_run_dir)
+    pkls = sorted(glob.glob(os.path.join(run_dir, 'network-*.pkl')))
+    if len(pkls) >= 1 and os.path.basename(pkls[0]) == 'network-final.pkl':
+        if include_final:
+            pkls.append(pkls[0])
+        del pkls[0]
+    return pkls
+    
+
+def locate_network_pkl(run_id_or_run_dir_or_network_pkl, snapshot_or_network_pkl=None):
+    for candidate in [snapshot_or_network_pkl, run_id_or_run_dir_or_network_pkl]:
+        if isinstance(candidate, str):
+            if os.path.isfile(candidate):
+                return candidate
+            converted = dnnlib.submission.submit.convert_path(candidate)
+            if os.path.isfile(converted):
+                return converted
+
+    pkls = list_network_pkls(run_id_or_run_dir_or_network_pkl)
+    if len(pkls) >= 1 and snapshot_or_network_pkl is None:
+        return pkls[-1]
+
+    for pkl in pkls:
+        try:
+            name = os.path.splitext(os.path.basename(pkl))[0]
+            number = int(name.split('-')[-1])
+            if number == snapshot_or_network_pkl:
+                return pkl
+        except ValueError: pass
+        except IndexError: pass
+    raise IOError('Cannot locate network pkl for snapshot', snapshot_or_network_pkl)
+
+def get_id_string_for_network_pkl(network_pkl):
+    p = network_pkl.replace('.pkl', '').replace('\\', '/').split('/')
+    longname = '-'.join(p[max(len(p) - 2, 0):])
+    return '-'.join(longname.split('-')[2:])
+
+def load_network_pkl(run_id_or_run_dir_or_network_pkl, snapshot_or_network_pkl=None):
+    return load_pkl(locate_network_pkl(run_id_or_run_dir_or_network_pkl, snapshot_or_network_pkl))

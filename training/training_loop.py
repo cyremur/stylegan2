@@ -128,6 +128,7 @@ def training_loop(
     network_snapshot_ticks  = 50,       # How often to save network snapshots? None = only save 'networks-final.pkl'.
     save_tf_graph           = False,    # Include full TensorFlow computation graph in the tfevents file?
     save_weight_histograms  = False,    # Include weight histograms in the tfevents file?
+    auto_resume             = True,     # Automatically search for a previous pkl to continue from?
     resume_pkl              = None,     # Network pickle to resume training from, None = train from scratch.
     resume_kimg             = 0.0,      # Assumed training progress at the beginning. Affects reporting and training schedule.
     resume_time             = 0.0,      # Assumed wallclock time at the beginning. Affects reporting.
@@ -136,6 +137,13 @@ def training_loop(
     # Initialize dnnlib and TensorFlow.
     tflib.init_tf(tf_config)
     num_gpus = dnnlib.submit_config.num_gpus
+
+    if(auto_resume):
+        resume_pkl = misc.get_last_pkl_for_run_name(dnnlib.submit_config.run_name)
+        if resume_pkl is not None:
+            print("Found candidate! Loading pkl: " + resume_pkl)
+            resume_kimg = float(resume_pkl.split("network-snapshot-")[1].split(".pkl")[0])
+            print("Resuming training at", resume_kimg, "kimg.")
 
     # Load training set.
     training_set = dataset.load_dataset(data_dir=dnnlib.convert_path(data_dir), verbose=True, **dataset_args)
