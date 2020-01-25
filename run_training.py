@@ -160,9 +160,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--result-dir', help='Root directory for run results (default: %(default)s)', default='results', metavar='DIR')
-    parser.add_argument('--data-dir', help='Dataset root directory', required=True)
+    parser.add_argument('--data-dir', help='Dataset root directory', default="datasets")
     parser.add_argument('--dataset', help='Training dataset', required=True)
-    parser.add_argument('--config', help='Training config (default: %(default)s)', default='config-f', required=True, dest='config_id', metavar='CONFIG')
+    parser.add_argument('--config', help='Training config (default: %(default)s)', default='config-f', dest='config_id', metavar='CONFIG')
     parser.add_argument('--num-gpus', help='Number of GPUs (default: %(default)s)', default=1, type=int, metavar='N')
     parser.add_argument('--total-kimg', help='Training length in thousands of images (default: %(default)s)', metavar='KIMG', default=25000, type=int)
     parser.add_argument('--gamma', help='R1 regularization weight (default is config dependent)', default=None, type=float)
