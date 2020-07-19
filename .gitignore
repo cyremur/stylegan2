@@ -1,2 +1,5 @@
 /.stylegan2-cache/
 __pycache__/
+/dnnlib/tflib/_cudacache
+/results
+/datasets
