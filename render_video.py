@@ -30,17 +30,19 @@ def main():
     parser.add_argument('--network_pkl', help='The pkl file to render from (the model checkpoint).', default=None, metavar='MODEL.pkl', required=True)
     parser.add_argument('--grid_x', help='Number of images to render horizontally (each frame will have rows of X images, default: 1).', default=1, metavar='X', type=int)
     parser.add_argument('--grid_y', help='Number of images to render vertically (each frame will have cols of Y images, default: 1).', default=1, metavar='Y', type=int)
-    parser.add_argument('--png_sequence', help='If True, outputs a folder of frames as pngs instead of video. (default: False).', default=False)
-    parser.add_argument('--image_shrink', help='TBD (not sure what this does).', default=1, type=float)
-    parser.add_argument('--image_zoom', help='Zoom on the output image.', default=1, type=float)
+    parser.add_argument('--png_sequence', help='If True, outputs a folder of frames as pngs instead of video. (default: False).', default=False, type=bool)
+    parser.add_argument('--image_shrink', help='Render in 1/[image_shrink] resolution (fast, useful for quick previews)', default=1, type=int)
+    parser.add_argument('--image_zoom', help='Zoom on the output image (seems like just more video pixels, but no true upscaling)', default=1, type=float)
     parser.add_argument('--duration_sec', help='Length of video to render in seconds.', default=30.0, type=float)
     parser.add_argument('--mp4_fps', help='Frames per second for video rendering', default=30, type=float)
     parser.add_argument('--smoothing_sec', help='Gaussian kernel size in seconds to blend video frames (higher value = less change, lower value = more erratic, default: 1.0)', default=1.0, type=float)
-    parser.add_argument('--filename', help='Filename for rendering output, defaults to pkl filename', default=None, type=float)
+    parser.add_argument('--truncation_psi', help='Truncation parameter (1 = normal, lower values overfit to look more like originals, higher values underfit to be more abstract, recommendation: 0.5-2)', default=1, type=float)
+    parser.add_argument('--randomize_noise', help='If True, adds noise to vary rendered images.', default=False, type=bool)
+    parser.add_argument('--filename', help='Filename for rendering output, defaults to pkl filename', default=None)
     parser.add_argument('--mp4_codec', help='Video codec to use with moviepy (i.e. libx264, libx265, mpeg4)', default='libx265')
     parser.add_argument('--mp4_bitrate', help='Bitrate to use with moviepy (i.e. 16M)', default='16M')
     parser.add_argument('--random_seed', help='Seed to initialize the latent generation.', default=starttime, type=int)
-    parser.add_argument('--minibatch_size', help='Size of batch rendering (higher: faster, lower: less vram, default: 8)', default=8, type=int)
+    parser.add_argument('--minibatch_size', help='Size of batch rendering (doesn\'t seem to have effects but left in anyway)', default=8, type=int)
 
     args = parser.parse_args()
 
@@ -54,6 +56,8 @@ def main():
         image_zoom=args.image_zoom, 
         duration_sec=args.duration_sec, 
         smoothing_sec=args.smoothing_sec, 
+        truncation_psi=args.truncation_psi,
+        randomize_noise=args.randomize_noise,
         filename=args.filename, 
         mp4_fps=args.mp4_fps, 
         mp4_codec=args.mp4_codec, 
@@ -85,7 +89,7 @@ def get_id_string_for_network_pkl(network_pkl):
 # Generate MP4 video of random interpolations using a previously trained network.
 # To run, uncomment the appropriate line in config.py and launch train.py.
 
-def generate_interpolation_video(network_pkl = None, grid_size=[1,1], png_sequence=False, image_shrink=1, image_zoom=1, duration_sec=60.0, smoothing_sec=1.0, filename=None, mp4_fps=30, mp4_codec='libx265', mp4_bitrate='16M', random_seed=1000, minibatch_size=8):
+def generate_interpolation_video(network_pkl = None, grid_size=[1,1], png_sequence=False, image_shrink=1, image_zoom=1, duration_sec=60.0, smoothing_sec=1.0, truncation_psi=1, randomize_noise=False, filename=None, mp4_fps=30, mp4_codec='libx265', mp4_bitrate='16M', random_seed=1000, minibatch_size=8):
     
     if network_pkl == None:
         print('ERROR: Please enter pkl path.')
@@ -93,7 +97,7 @@ def generate_interpolation_video(network_pkl = None, grid_size=[1,1], png_sequen
     num_frames = int(np.rint(duration_sec * mp4_fps))
     random_state = np.random.RandomState(random_seed)
     if filename is None:
-        filename = get_id_string_for_network_pkl(network_pkl) + '-seed-' + str(random_seed) + '.mp4'
+        filename = get_id_string_for_network_pkl(network_pkl) + '-seed-' + str(random_seed)
 
     print('Loading network from "%s"...' % network_pkl)
     G, D, Gs = load_pkl(network_pkl)
@@ -107,13 +111,14 @@ def generate_interpolation_video(network_pkl = None, grid_size=[1,1], png_sequen
     all_latents /= np.sqrt(np.mean(np.square(all_latents)))
     print(all_latents[0].shape)
 
-
+    
+    print("Rendering...\nminibatch_size =", minibatch_size, ", out_shrink =", image_shrink, ", truncation_psi =", truncation_psi, ", randomize_noise =", randomize_noise)
     # Frame generation func for moviepy.
     def make_frame(t):
         frame_idx = int(np.clip(np.round(t * mp4_fps), 0, num_frames - 1))
         latents = all_latents[frame_idx]
         labels = np.zeros([latents.shape[0], 0], np.float32)
-        images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=1, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8, truncation_psi=1, randomize_noise=False)
+        images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=1, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8, truncation_psi=truncation_psi, randomize_noise=randomize_noise)
         grid = misc.create_image_grid(images, grid_size).transpose(1, 2, 0) # HWC
         if image_zoom > 1:
             grid = scipy.ndimage.zoom(grid, [image_zoom, image_zoom, 1], order=0)
@@ -128,7 +133,7 @@ def generate_interpolation_video(network_pkl = None, grid_size=[1,1], png_sequen
             print('Generating png %d / %d...' % (png_idx, num_frames))
             latents = latents = all_latents[png_idx]
             labels = np.zeros([latents.shape[0], 0], np.float32)
-            images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=1, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8, truncation_psi=1, randomize_noise=False)
+            images = Gs.run(latents, labels, minibatch_size=minibatch_size, num_gpus=1, out_mul=127.5, out_add=127.5, out_shrink=image_shrink, out_dtype=np.uint8, truncation_psi=truncation_psi, randomize_noise=randomize_noise)
             misc.save_image_grid(images, os.path.join(result_subdir, '%06d.png' % (png_idx)), [0,255], grid_size)
     else:
         # Generate video.
